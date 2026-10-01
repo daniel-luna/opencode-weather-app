@@ -11,6 +11,7 @@ persistence.
 
 `references/file-system.md` is the canonical target layout. `src/` now matches
 it, and identifiers are fully in English (only user-facing strings are Spanish).
+`tests/` mirrors that layout, and `bun run build` runs the suite first.
 
 ## Layout
 
@@ -26,6 +27,7 @@ src/api/            geocoding.ts → searchCities(), weather.ts → fetchWeather
 src/storage/        citiesStorage.ts (loadCities/saveCities), settingsStorage.ts (loadSettings/saveSettings)
 src/presentation/   output.ts (todo console.log), input.ts (readline), menu.ts (renderMenu), weatherView.ts
 src/actions/        addCity, removeCity, setDefaultCity, toggleUnit, getWeather, listCities (printCityList/pickFromList)
+tests/              espejo 1:1 de src/ (mismo nombre base) + helpers/ (ver "Tests")
 ```
 
 Imports use explicit `.ts` extensions (`allowImportingTsExtensions`), required for
@@ -43,7 +45,9 @@ and returning `AppState`; anything that prints goes through `presentation/output
   *after* it has decided, never before, so a cancelled prompt (`0` at any
   selection list) leaves both files byte-identical. There is no "return the same
   reference to mean no change" protocol — the old `index.ts` owned saving; that
-  responsibility moved down into the actions.
+  responsibility moved down into the actions. Both halves of that rule are pinned
+  by `tests/actions/*` (identical file bytes after a cancel; a file that is never
+  created when nothing changed).
 - `MenuOption.run` has the signature `(state: AppState) => Promise<AppState>`.
   Read-only actions (`1`, `2`) return the state they received.
 
@@ -62,20 +66,24 @@ defaults instead of crashing.
 ## Commands
 
 `package.json` scripts: `bun run start` (= `bun run src/index.ts`), `bun run dev`
-(adds `--watch`), `bun run build`.
+(adds `--watch`), `bun test`, `bun run test:watch`, `bun run typecheck`, `bun run build`.
 
 | Task | Command |
 | --- | --- |
 | Install deps | `bun install` (a `bun.lock` exists; do not switch to npm/yarn/pnpm) |
 | Run | `bun .`, `bun run src/index.ts` or `bun run start` |
-| Typecheck | `bunx tsc --noEmit` |
-| Tests | `bun test` (Bun built-in, zero config) — there are still **no** `*.test.ts` files |
+| Typecheck | `bunx tsc --noEmit` (or `bun run typecheck`) |
+| Tests | `bun test` (Bun built-in runner, 163 tests in `tests/`) |
 | Build binary | `bun run build` → `./dist/weather` (81 MB, gitignored) |
 
 - `build` targets `dist/weather`, which `.gitignore` covers. Don't move it back to
   the repo root — the old `./weather` at the root was 81 MB and **not** ignored.
+- **`build` is gated by the test suite**: the script is `bun test && bun build ...`,
+  so a failing test means no binary is produced. Don't drop the `bun test &&`
+  prefix when editing `build`; add a separate `build:only` script if a
+  test-skipping build is ever genuinely needed.
 - No linter or formatter is configured. Don't assume eslint/prettier exist.
-- Verify with `bunx tsc --noEmit && bun run src/index.ts`.
+- Verify with `bunx tsc --noEmit && bun test && bun run src/index.ts`.
 - Smoke-test non-interactively by piping a script, e.g.
   `printf '3\nOttawa\n1\ns\n1\n9\n' | bun run src/index.ts`. Without piping there is
   no automation, and OpenMeteo needs no key/mock.
@@ -119,14 +127,16 @@ Flags that will break code written against TS defaults:
   `presentation/output.ts` owns **all** printing. `index.ts` and `actions/` must
   never call `console.log` — use `blank()` for empty lines and `paint()` from
   `utils/colors.ts` to mark values.
-- Colors turn **off** when `NO_COLOR` is set, `TERM=dumb`, or stdout is not a TTY
-  (so piped smoke tests stay clean). `FORCE_COLOR` (any value but `"0"`) forces them
-  on and beats every other rule.
+- Colors turn **off** when `FORCE_COLOR=0`, when `NO_COLOR` is set, when `TERM=dumb`,
+  or when stdout is not a TTY (so piped smoke tests stay clean). `FORCE_COLOR` (any
+  value but `"0"`) forces them on when stdout is not a TTY, but it does **not**
+  override `NO_COLOR` or `TERM=dumb` — those two win. `tests/utils/colors.test.ts`
+  pins the whole matrix by re-importing the module with a cache-busting query.
 - Palette: cyan = box borders, menu options and prompts; **yellow = temperatures and
   `!` warnings**; green = `✓`; red = `✗`; bold = city names and dynamic values
   (`(°F)`, `(2)`); dim = timestamps and the `(default)` marker.
-- `Bun.stripANSI()` is built in — use it to assert plain text if you ever add the
-  tests listed in `ideas-revision.md`.
+- `Bun.stripANSI()` is built in; the presentation tests use it so assertions hold
+  whether or not colors are on.
 
 ## Console input
 
@@ -156,11 +166,63 @@ code 1. Don't "simplify" this back to `rl.question()`.
 - `daily` arrays are index-aligned and can carry `null`s, so the 7-day loop guards with
   `?? temperature` per field rather than assuming a full row.
 - Forecast dates arrive as bare `"2026-10-01"` with no timezone. `shortDate()` in
-  `utils/format.ts` pins `timeZone: "UTC"` in `toLocaleDateString`; without it the conversion
-  can shift the day for users west of UTC. Don't drop that option.
+  `utils/format.ts` parses them as `${date}T12:00:00Z` **and** pins
+  `timeZone: "UTC"` in `toLocaleDateString`. Both halves are needed: the `Z` stops
+  local noon from drifting across a UTC day for users east of UTC+12, and the
+  `timeZone` option stops the same for users west of UTC. `tests/utils/format.test.ts`
+  pins both by switching `process.env.TZ`.
 - The unit label (`°C` / `°F`) is read from `current_units.temperature_2m` in the
   response, not hardcoded.
 - `language=es` makes the API localize country/admin names (e.g. `"Canadá"`).
+
+## Tests
+
+`tests/` is a **1:1 mirror of `src/`**: every `src/foo/bar.ts` has
+`tests/foo/bar.test.ts`, same directories, same base names. 22 source files, 22 test
+files, 163 tests, run with `bun test`. No test framework beyond `bun:test`, and the
+only config is `bunfig.toml` (which preloads `tests/setup.ts`).
+
+```
+src/index.ts        → tests/index.test.ts
+src/actions/*.ts    → tests/actions/*.test.ts
+src/api/*.ts        → tests/api/*.test.ts
+src/presentation/*  → tests/presentation/*.test.ts   (including input.ts)
+src/storage/*.ts    → tests/storage/*.test.ts
+src/types/*.ts      → tests/types/*.test.ts           (one file per type module)
+src/utils/*.ts      → tests/utils/*.test.ts
+```
+
+`tests/helpers/` and `tests/setup.ts` have no `src/` counterpart — they are shared
+infrastructure, not mirrors.
+
+| Piece | How to use it |
+| --- | --- |
+| `tests/setup.ts` | Preloaded by `bunfig.toml`; forces `NO_COLOR=1` so every assertion is plain text. |
+| `tests/helpers/fixtures.ts` | `makeCity` / `makeWeather` / `makeForecastDay` / `makeState`. |
+| `tests/helpers/captureOutput.ts` | Spies on `console.log`, returns lines stripped of ANSI. |
+| `tests/helpers/sandbox.ts` | `useSandbox()` chdirs into a fresh `mkdtemp` dir; **always** `restore()` in `afterEach`. Storage is cwd-relative, so this is how tests stay off the real `datos/`. |
+| `tests/helpers/fetchStub.ts` | Replaces `globalThis.fetch`; records URLs so tests can assert query params. `restore()` in `afterEach`. |
+| `tests/helpers/scriptedInput.ts` | `scriptInput([...])` spies on **only** `input.prompt`; real `promptRequired`/`confirm` then run against those answers, so their logic is covered too. Exhausting the list throws instead of hanging. `capturePrompts()` also swallows the prompt text written to stdout. |
+| `tests/helpers/fetchPreload.ts` | `globalThis.fetch` replacement for the spawned e2e process. |
+| `tests/helpers/cliRunner.ts` | `runCli(input, cwd)` spawns the real `src/index.ts` with the preload above. |
+
+Rules that keep the suite reliable:
+
+- `afterEach` calls `mock.restore()`; `spyOn` works on module namespace objects, so
+  mocking `presentation/input.ts` does not leak into other files.
+- `tests/presentation/input.test.ts` mocks `node:readline/promises` and drives the
+  fake interface, and its "al cerrar la entrada" block must stay **last** in the file:
+  `input.ts` keeps `inputClosed` as module state that no reset clears.
+- Test **process state**, not just the returned `AppState`: a cancelled prompt must
+  leave `datos/*.json` byte-identical (or not created at all). The action tests read
+  the sandbox files for that.
+- `tests/index.test.ts` spawns the real `src/index.ts` with
+  `bun --preload tests/helpers/fetchPreload.ts` in a sandbox cwd, so it covers the menu
+  wiring and persistence without touching the network or the repo's `datos/`.
+- Adding a test file with a name matching `*.test.ts` is all the registration needed.
+  `bun test` must stay the only entrypoint: `build` depends on it.
+- `bun test` does **not** typecheck. Run `bun run typecheck` too — a type error can
+  pass the whole suite and still break `tsc`.
 
 ## Conventions
 
@@ -168,7 +230,9 @@ code 1. Don't "simplify" this back to `rl.question()`.
 - Menu option numbers follow the README exactly (`1`–`5`, `8`, `9`); don't renumber.
   `0` is accepted as an alias for exit, and `3`/`4`/`5` accept `0` to cancel. The exit
   values are checked in `index.ts` *before* the `options.find()` lookup, so `MenuOption`
-  needs no exit flag.
+  needs no exit flag — which is also why `renderMenu()` prints the `9. Salir` row itself
+  (last one, no badge) instead of receiving it as an option: it has no action to run.
+  `tests/index.test.ts` pins the rendered order against the README.
 - The 7-day forecast is **not** a menu option: `renderWeather()` in
   `presentation/weatherView.ts` prints it after the current reading, so options 1 and 2
   both show it. The README's menu has no slot for it (`6`/`7` were left free on

@@ -20,7 +20,7 @@ export function formatTemperature(value: number, label: string): string {
 }
 
 export function shortDate(date: string): string {
-  return new Date(`${date}T12:00:00`).toLocaleDateString("es-ES", {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString("es-ES", {
     weekday: "short",
     day: "2-digit",
     month: "short",
