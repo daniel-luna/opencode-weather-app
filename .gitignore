@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# datos locales de la app
+datos
+
 # code coverage
 coverage
 *.lcov
