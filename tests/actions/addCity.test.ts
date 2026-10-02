@@ -205,8 +205,7 @@ describe("actions/addCity", () => {
     stubGeocoding({ results: [OTTAWA_RESULT] });
     const out = captureOutput();
     capturePrompts();
-    scripted = scriptInput(["", "Ottawa", "s"]);
-
+    scripted = scriptInput([" ", "Ottawa", "s"]);
 
     const state = await addCity(makeState());
 
