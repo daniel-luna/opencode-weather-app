@@ -207,6 +207,7 @@ describe("actions/addCity", () => {
     capturePrompts();
     scripted = scriptInput(["", "Ottawa", "s"]);
 
+
     const state = await addCity(makeState());
 
     expect(state.cities).toEqual([OTTAWA]);
