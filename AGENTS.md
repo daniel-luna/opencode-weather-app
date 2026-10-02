@@ -78,6 +78,7 @@ defaults instead of crashing.
 
 - `build` targets `dist/weather`, which `.gitignore` covers. Don't move it back to
   the repo root — the old `./weather` at the root was 81 MB and **not** ignored.
+  CI calls this same script verbatim (see "Release").
 - **`build` is gated by the test suite**: the script is `bun test && bun build ...`,
   so a failing test means no binary is produced. Don't drop the `bun test &&`
   prefix when editing `build`; add a separate `build:only` script if a
@@ -247,7 +248,37 @@ Rules that keep the suite reliable:
   (`"Ottawa"` → 5 cities, `"Springfield"` → 5). Option 3 lists the candidates and
   lets the user pick. Confirmed as an intentional decision.
 
+## Release
+
+`.github/workflows/release.yml` publishes a GitHub Release **automatically on every
+push to `main`**, driven by `version` in `package.json`. Three jobs:
+
+1. `version` reads `version` with `jq`, validates it is semver, derives `v<version>`,
+   and checks `git ls-remote --tags origin`. If the tag already exists it sets
+   `should_release=false` and the other two jobs are skipped — **bumping `version` is
+   the only trigger**, so a normal commit changes nothing.
+2. `build` runs the matrix (ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel,
+   windows-latest), calling `bun run build` **unmodified** — so the suite gates the
+   release on every platform. Each job renames `dist/weather*` (`shell: bash`, so the
+   same line works on Windows; Bun appends `.exe` there) and uploads it as an artifact.
+3. `release` downloads the artifacts, runs `chmod +x` (upload-artifact drops the exec
+   bit), tags `$GITHUB_SHA`, and calls `gh release create --verify-tag
+   --generate-notes`.
+
+- `permissions: contents: write` and `concurrency: group: release,
+  cancel-in-progress: false` are both required: the first to push the tag, the second
+  so two pushes to `main` don't race for the same tag.
+- Assets are named `weather-<os>-<arch>[.exe]`, uncompressed (~81 MB each). The macOS
+  ones are **unsigned**, so Gatekeeper blocks them on first run; fixing that needs an
+  Apple Developer certificate and `codesign`.
+- Bun can cross-compile (`bun build --compile --target=bun-<os>-<arch>`, and `.exe`
+  is added automatically), so the whole matrix could collapse into one `ubuntu-latest`
+  job. Not done on purpose; revisit only if the macOS minutes start to cost something.
+
 ## Git
 
 - Branch `main`, two commits (`first commit`, then the weather CLI implementation).
   Don't commit unless explicitly asked.
+- Pushing to `main` runs the release workflow, so a push **does** publish a Release
+  whenever `version` was bumped in that same commit. Commit and push separately when
+  in doubt.
