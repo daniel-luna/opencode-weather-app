@@ -203,7 +203,7 @@ infrastructure, not mirrors.
 | `tests/helpers/captureOutput.ts` | Spies on `console.log`, returns lines stripped of ANSI. |
 | `tests/helpers/sandbox.ts` | `useSandbox()` chdirs into a fresh `mkdtemp` dir; **always** `restore()` in `afterEach`. Storage is cwd-relative, so this is how tests stay off the real `datos/`. |
 | `tests/helpers/fetchStub.ts` | Replaces `globalThis.fetch`; records URLs so tests can assert query params. `restore()` in `afterEach`. |
-| `tests/helpers/scriptedInput.ts` | `scriptInput([...])` spies on **only** `input.prompt`; real `promptRequired`/`confirm` then run against those answers, so their logic is covered too. Exhausting the list throws instead of hanging. `capturePrompts()` also swallows the prompt text written to stdout. |
+| `tests/helpers/scriptedInput.ts` | `scriptInput([...])` spies on **only** `input.prompt`; real `promptRequired`/`confirm` then run against those answers, so their logic is covered too. Exhausting the list throws instead of hanging. `capturePrompts()` also swallows the prompt text written to stdout. Answers come back **raw**: the mock replaces `prompt`, so the `line.trim()` in `input.ts`'s readline handler never runs. |
 | `tests/helpers/fetchPreload.ts` | `globalThis.fetch` replacement for the spawned e2e process. |
 | `tests/helpers/cliRunner.ts` | `runCli(input, cwd)` spawns the real `src/index.ts` with the preload above. |
 
@@ -211,6 +211,18 @@ Rules that keep the suite reliable:
 
 - `afterEach` calls `mock.restore()`; `spyOn` works on module namespace objects, so
   mocking `presentation/input.ts` does not leak into other files.
+- `scriptInput` answers are **raw** (see the table row): a scripted `" "` never goes
+  through `input.ts:36`'s `trim()`, so a test must not lean on that trim to justify an
+  assertion. Whitespace-only input is covered end-to-end in
+  `tests/presentation/input.test.ts` (which drives the real readline handler via
+  `typeLine`) and `promptRequired` trims defensively so the invariant doesn't depend on
+  the caller. `tests/actions/addCity.test.ts`'s "insiste si el nombre viene vacío" was
+  the counterexample: it scripted `" "`, could only pass when a mock leaked, and broke
+  the whole suite (which gates `build`, so it blocked the release).
+- Known debt: `spyOn` on an ESM export plus `mock.restore()`, repeated across 22 files
+  in one shared Bun process, is not airtight — the exact mock bound to a call site has
+  been observed to depend on execution order. Don't write a test whose correctness
+  depends on *which* mock is live.
 - `tests/presentation/input.test.ts` mocks `node:readline/promises` and drives the
   fake interface, and its "al cerrar la entrada" block must stay **last** in the file:
   `input.ts` keeps `inputClosed` as module state that no reset clears.

@@ -61,7 +61,7 @@ export function prompt(message: string): Promise<string> {
 
 export async function promptRequired(message: string): Promise<string> {
   for (;;) {
-    const answer = await prompt(message);
+    const answer = (await prompt(message)).trim();
     if (answer !== "") {
       return answer;
     }

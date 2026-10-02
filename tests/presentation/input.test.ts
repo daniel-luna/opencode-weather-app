@@ -100,11 +100,12 @@ describe("presentation/input", () => {
     input.startInput();
 
     const pending = input.promptRequired("  Nombre: ");
+    typeLine("   ");
     typeLine("");
     typeLine("Ottawa");
 
     expect(await pending).toBe("Ottawa");
-    expect(out.has("! Escribí algo, o Ctrl+C para salir.")).toBe(true);
+    expect(out.count("! Escribí algo, o Ctrl+C para salir.")).toBe(2);
   });
 
   test("confirm acepta las respuestas afirmativas y rechaza las demás", async () => {
