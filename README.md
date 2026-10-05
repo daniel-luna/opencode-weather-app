@@ -18,6 +18,7 @@ El objetivo de esta aplicación es que creemos una aplicación de consola que pi
 1. Paso 1: Geocoding API.
 2. Paso 2: OpenMeteo API.
 
+
 ```
 https://geocoding-api.open-meteo.com/v1/search?name=Ottawa&count=1&language=es&format=json
 https://api.open-meteo.com/v1/forecast?latitude=45.41117&longitude=-75.69812&current=temperature_2m
